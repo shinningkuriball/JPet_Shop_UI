@@ -368,9 +368,10 @@
 
 .kinds-item-footer {
   display: flex;
-  justify-content: flex-start;
+  justify-content: space-between;
   align-items: center;
   margin-top: 4px;
+  gap: 10px;
 }
 
 .kinds-item-price {
@@ -378,6 +379,68 @@
   font-weight: 800;
   color: #ef4444;
   line-height: 1;
+}
+
+.kinds-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.kinds-op-btn {
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kinds-op-btn:hover {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+}
+
+.kinds-pagination {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.page-btn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.page-text {
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.page-size-select {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #374151;
+  font-size: 13px;
+  padding: 6px 8px;
 }
 
 /* 空状态 */

@@ -6,6 +6,7 @@ import { getImagePath } from '@/utils/imagePath'
 import { useAuthStore } from '@/stores/auth'
 import { useCartBadgeStore } from '@/stores/cartBadge'
 import { useCatalogStore } from '@/stores/catalog'
+import { merchantOrderApi } from '@/api/merchant'
 
 import '@/styles/legacy/common.css'
 import '@/styles/legacy/logistics.css'
@@ -88,11 +89,7 @@ function onHistoryCheckboxChange(id, event) {
   toggleHistorySelect(id, event.target.checked)
 }
 
-onMounted(async () => {
-  await catalog.loadAll()
-  await auth.refresh()
-  await cartBadge.refresh()
-
+function initMockLogisticsData() {
   const source = catalog.products.slice(0, 8)
   unshippedList.value = source.slice(0, 4).map((p, idx) => ({
     id: p.id,
@@ -137,6 +134,32 @@ onMounted(async () => {
     receiver: ['王**', '李**', '周**'][idx % 3],
     finishedAt: `2026-03-2${idx + 1} 0${idx}:3${idx}`,
   }))
+}
+
+onMounted(async () => {
+  await catalog.loadAll()
+  await auth.refresh()
+  await cartBadge.refresh()
+  try {
+    const unshippedRes = await merchantOrderApi.list({ status: '待发货' })
+    const inTransitRes = await merchantOrderApi.list({ status: '已发货' })
+    const cancelledRes = await merchantOrderApi.listHistory({ status: '已取消' })
+    const arrivedRes = await merchantOrderApi.listHistory({ status: '已完成' })
+    unshippedList.value = unshippedRes.list
+    inTransitList.value = inTransitRes.list
+    cancelledList.value = cancelledRes.list
+    arrivedList.value = arrivedRes.list
+    if (
+      !unshippedList.value.length &&
+      !inTransitList.value.length &&
+      !cancelledList.value.length &&
+      !arrivedList.value.length
+    ) {
+      initMockLogisticsData()
+    }
+  } catch {
+    initMockLogisticsData()
+  }
 })
 </script>
 

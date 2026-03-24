@@ -36,7 +36,7 @@ router.beforeEach(async (to) => {
 
   if (to.path === '/login') {
     if (auth.loggedIn) {
-      return { path: '/index' }
+      return { path: '/profile' }
     }
     return true
   }

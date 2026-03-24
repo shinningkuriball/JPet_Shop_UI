@@ -67,29 +67,35 @@ const buyerReviewSeeds = [
   {
     user: '铲屎官小王',
     rating: 5,
-    content: '材质很结实，猫咪每天都在上面玩，安装也方便，值这个价格。',
   },
   {
     user: '狗狗的麻麻',
     rating: 5,
-    content: '吃了一周状态明显变好，毛发更亮了，便便也更稳定。',
   },
   {
     user: '猫奴小李',
     rating: 4,
-    content: '出差时非常省心，定时投喂准确，建议再加个更大粮仓版本。',
   },
   {
     user: '铲屎官小张',
     rating: 5,
-    content: '夜间反光效果很明显，手感也不错，遛狗安全感大大提升。',
   },
   {
     user: '喵主子守护者',
     rating: 4,
-    content: '防溅效果很好，清理方便，猫咪适应速度也比预期快。',
   },
 ]
+
+function buildReviewContent(product, index) {
+  const templates = [
+    `买了“${product.name}”后使用感受很好，做工和细节都很到位，家里毛孩子很喜欢。`,
+    `“${product.name}”到货后立刻试用了，质量和页面描述一致，性价比不错。`,
+    `这款“${product.name}”比我预期更实用，日常照顾宠物更省心。`,
+    `“${product.name}”外观和实用性都在线，连续用了几天体验很稳定。`,
+    `对“${product.name}”整体满意，材质和手感都不错，推荐给养宠朋友。`,
+  ]
+  return templates[index % templates.length]
+}
 
 const hotProducts = computed(() => catalog.products.slice(0, 4))
 const hotProductsWithMetrics = computed(() =>
@@ -106,6 +112,7 @@ const buyerReviews = computed(() =>
     const seed = buyerReviewSeeds[index % buyerReviewSeeds.length]
     return {
       ...seed,
+      content: buildReviewContent(product, index),
       productName: product.name,
       productImage: product.image,
     }

@@ -6,6 +6,7 @@ import { getContextPath } from '@/utils/context'
 import { getImagePath } from '@/utils/imagePath'
 import { useAuthStore } from '@/stores/auth'
 import { useCartBadgeStore } from '@/stores/cartBadge'
+import { merchantApi } from '@/api/merchant'
 
 import '@/styles/legacy/common.css'
 import '@/styles/legacy/merchant-center.css'
@@ -55,6 +56,22 @@ function loadUserInfo() {
   }
 }
 
+async function loadMerchantProfile() {
+  try {
+    const profile = await merchantApi.getProfile()
+    if (profile) {
+      userInfo.name = profile.merchantName || userInfo.name
+      userInfo.email = profile.email || userInfo.email
+      userInfo.phone = profile.phone || userInfo.phone
+      userInfo.registerTime = profile.registerTime || userInfo.registerTime
+      userInfo.introduction = profile.introduction || userInfo.introduction
+    }
+  } catch {
+    // 接口未就绪时回退本地缓存
+    loadUserInfo()
+  }
+}
+
 function enableEdit() {
   isEditing.value = true
   editButtonsHtml.value = 'save'
@@ -66,8 +83,18 @@ function cancelEdit() {
   loadUserInfo()
 }
 
-function saveUserInfo() {
-  localStorage.setItem('userInfo', JSON.stringify({ ...userInfo }))
+async function saveUserInfo() {
+  const payload = {
+    merchantName: userInfo.name,
+    email: userInfo.email,
+    phone: userInfo.phone,
+    introduction: userInfo.introduction,
+  }
+  try {
+    await merchantApi.updateProfile(payload)
+  } catch {
+    localStorage.setItem('userInfo', JSON.stringify({ ...userInfo }))
+  }
   cancelEdit()
   alert('保存成功！')
 }
@@ -99,7 +126,7 @@ function onPickCertificate(event) {
   authForm.certificatePreviewUrl = URL.createObjectURL(file)
 }
 
-function submitOfficialAuth() {
+async function submitOfficialAuth() {
   if (!authForm.companyName.trim()) {
     alert('请先填写公司名称')
     return
@@ -108,7 +135,15 @@ function submitOfficialAuth() {
     alert('请先上传相关证书图片')
     return
   }
-  alert('提交申请成功，等待平台审核')
+  try {
+    await merchantApi.submitAuth({
+      companyName: authForm.companyName.trim(),
+      certificate: authForm.certificateFile,
+    })
+    alert('提交申请成功，等待平台审核')
+  } catch {
+    alert('申请已暂存（演示模式），待后端接口联调后将正式提交')
+  }
   closeOfficialAuthModal()
 }
 
@@ -125,7 +160,18 @@ function logout() {
 onMounted(async () => {
   await auth.refresh()
   await cartBadge.refresh()
-  loadUserInfo()
+  await loadMerchantProfile()
+
+  try {
+    const stats = await merchantApi.getStats()
+    if (stats) {
+      storeStats.monthRevenue = Number(stats.monthRevenue || 0)
+      storeStats.trendPercent = Number(stats.trendPercent || 0)
+      storeStats.rating = Number(stats.rating || 0)
+    }
+  } catch {
+    // 忽略，使用本地默认值
+  }
 
   if (storeStats.trendPercent >= 0) {
     trendClass.value = 'up'

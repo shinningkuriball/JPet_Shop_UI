@@ -39,6 +39,14 @@ const usernameError = ref('')
 const isCheckingUsername = ref(false)
 let usernameCheckTimeout: ReturnType<typeof setTimeout> | null = null
 
+function getLoginSuccessTarget() {
+  const raw = route.query.redirect
+  if (typeof raw === 'string' && raw.startsWith('/')) {
+    return raw
+  }
+  return '/index'
+}
+
 // --- 天气逻辑状态 ---
 const currentWeather = ref<WeatherType>('cloudy')
 const weatherItems = ref<FloatingItem[]>([])
@@ -139,37 +147,80 @@ function fadeOut(selector: string, delay = 5000) {
   }, delay)
 }
 
-function refreshCaptcha() { captchaSrc.value = captchaUrl() }
-function openRegisterModal(e: Event) { e.preventDefault(); registerOpen.value = true; }
-function closeRegisterModal() { registerOpen.value = false; usernameError.value = ''; }
+function refreshCaptcha() {
+  captchaSrc.value = captchaUrl()
+}
 
-/**
- * 登录提交逻辑 (包含管理员入口拦截)
- */
-async function onLoginSubmit(e: Event) {
-  e.preventDefault(); 
-  const form = e.target as HTMLFormElement;
-  const formData = new FormData(form);
-  
-  const userStr = formData.get('username') as string;
-  const passStr = formData.get('password') as string;
+function openRegisterModal(e) {
+  e.preventDefault()
+  registerOpen.value = true
+}
 
-  // --- 3. 管理员模式入口拦截 ---
-  if (userStr === 'admin' && passStr === 'Admin123') {
-    // 跳转到其他组员负责的管理员网页
-    window.location.href = 'http://localhost:8080/admin/index'; 
-    return;
-  }
+function closeRegisterModal() {
+  registerOpen.value = false
+  usernameError.value = ''
+}
 
-  // --- 普通用户登录逻辑 ---
-  const body = new URLSearchParams(formData as any);
+async function checkLoggedIn() {
   try {
-    const res = await fetch(`${ctx}/user/login`, { method: 'POST', credentials: 'include', body, redirect: 'manual' })
-    if (res.status === 302 || res.type === 'opaqueredirect' || res.url.includes('/index')) {
-      await auth.refresh(); router.push('/'); return;
+    const r = await fetch(`${ctx}/user/info`, { credentials: 'include' })
+    const info = await r.json()
+    return Boolean(info?.success && info.user)
+  } catch {
+    return false
+  }
+}
+
+async function onLoginSubmit(e) {
+  e.preventDefault()
+  const form = e.target
+  const body = new URLSearchParams(new FormData(form))
+  try {
+    const res = await fetch(`${ctx}/user/login`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      redirect: 'manual',
+    })
+
+    // 最稳妥：无论后端返回 302/200/opaqueredirect，优先以会话是否建立为准
+    if (await checkLoggedIn()) {
+      await router.replace(getLoginSuccessTarget())
+      return
     }
-    errorMsg.value = '登录失败，请确认验证码及账号密码'; refreshCaptcha();
-  } catch { errorMsg.value = '后端连接失败'; refreshCaptcha(); }
+
+    const loc = res.headers.get('Location') || ''
+    if (loc.includes('/login?')) {
+      const query = loc.split('?')[1] || ''
+      const params = new URLSearchParams(query)
+      const err = params.get('err')
+      const u = params.get('u')
+      errorMsg.value = err ? decodeURIComponent(err.replace(/\+/g, ' ')) : ''
+      inputUsername.value = u ? decodeURIComponent(u.replace(/\+/g, ' ')) : inputUsername.value
+      refreshCaptcha()
+      return
+    }
+
+    /**
+     * Vite 开发代理有时会把 302 变成 200（带 HTML），此时根据会话判断是否已登录。
+     * 另：opaque redirect 下 status 可能为 0，同样回退检查 /user/info。
+     */
+    if (res.status === 200 || res.status === 0 || res.type === 'opaqueredirect') {
+      if (await checkLoggedIn()) {
+        await router.replace(getLoginSuccessTarget())
+        return
+      }
+    }
+
+    errorMsg.value =
+      '登录失败：请确认验证码与图片完全一致（点击图片可刷新），账号密码正确。默认 admin 密码为 Admin123。'
+    refreshCaptcha()
+  } catch (err) {
+    const detail = err instanceof Error ? `（${err.message}）` : ''
+    errorMsg.value = `网络错误：请确认后端已在 8080 启动，且使用 npm run dev 并访问 /spa/ 路径。${detail}`
+    refreshCaptcha()
+  }
 }
 
 // --- 注册校验逻辑 (还原) ---

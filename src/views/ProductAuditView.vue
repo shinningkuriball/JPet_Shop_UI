@@ -6,6 +6,7 @@ import { getImagePath } from '@/utils/imagePath'
 import { useAuthStore } from '@/stores/auth'
 import { useCartBadgeStore } from '@/stores/cartBadge'
 import { useCatalogStore } from '@/stores/catalog'
+import { merchantProductAuditApi } from '@/api/merchant'
 
 import '@/styles/legacy/common.css'
 import '@/styles/legacy/product-audit.css'
@@ -81,9 +82,15 @@ function editCurrentPendingProduct() {
   attrInput.value = ''
 }
 
-function withdrawCurrentRequest() {
+async function withdrawCurrentRequest() {
   const p = selectedPending.value
   if (!p) return
+  try {
+    await merchantProductAuditApi.withdraw(p.id)
+  } catch {
+    alert('撤回失败，请稍后重试')
+    return
+  }
   const idx = pendingProducts.value.findIndex((x) => x.id === p.id)
   if (idx < 0) return
   pendingProducts.value.splice(idx, 1)
@@ -146,7 +153,7 @@ function removeDraftAttribute(idx) {
   draftForm.value.attributes.splice(idx, 1)
 }
 
-function submitNewProductReview() {
+async function submitNewProductReview() {
   if (!draftForm.value.image) {
     alert('请先从本地选择商品图片')
     return
@@ -163,10 +170,25 @@ function submitNewProductReview() {
     uploadPreviewUrl.value || (typeof draftForm.value.image === 'string' ? draftForm.value.image : '')
 
   if (editingProductId.value !== null) {
+    const editingId = editingProductId.value
+    let updatedFromApi = null
+    try {
+      updatedFromApi = await merchantProductAuditApi.update(editingId, {
+        name: draftForm.value.name.trim(),
+        price: Number(draftForm.value.price),
+        stock: Number(draftForm.value.stock || 0),
+        description: draftForm.value.description.trim(),
+        specifications: [...draftForm.value.attributes],
+      })
+    } catch {
+      alert('修改提交失败，请稍后重试')
+      return
+    }
     const idx = pendingProducts.value.findIndex((x) => x.id === editingProductId.value)
     if (idx >= 0) {
       pendingProducts.value[idx] = {
         ...pendingProducts.value[idx],
+        ...(updatedFromApi || {}),
         name: draftForm.value.name.trim(),
         price: Number(draftForm.value.price),
         stock: Number(draftForm.value.stock || 0),
@@ -186,9 +208,25 @@ function submitNewProductReview() {
     return
   }
 
+  let createdFromApi = null
+  try {
+    createdFromApi = await merchantProductAuditApi.create({
+      name: draftForm.value.name.trim(),
+      price: Number(draftForm.value.price),
+      stock: Number(draftForm.value.stock || 0),
+      description: draftForm.value.description.trim(),
+      status: '待审核',
+      specifications: draftForm.value.attributes.length ? [...draftForm.value.attributes] : ['500g'],
+    })
+  } catch {
+    alert('提交审核失败，请稍后重试')
+    return
+  }
+
   const newItemId = Date.now()
   pendingProducts.value.unshift({
-    id: newItemId,
+    ...(createdFromApi || {}),
+    id: createdFromApi?.id ?? newItemId,
     name: draftForm.value.name.trim(),
     price: Number(draftForm.value.price),
     stock: Number(draftForm.value.stock || 0),
@@ -201,9 +239,32 @@ function submitNewProductReview() {
     submittedAt: '刚刚',
     specifications: draftForm.value.attributes.length ? [...draftForm.value.attributes] : ['500g'],
   })
-  selectedPendingId.value = newItemId
+  selectedPendingId.value = createdFromApi?.id ?? newItemId
   createMode.value = false
   alert('新商品已提交审核（草稿演示）')
+}
+
+function initMockAuditData() {
+  const source = catalog.products.slice(0, 8)
+  pendingProducts.value = source.map((p, idx) => ({
+    ...p,
+    status: idx % 5 === 0 ? 'reviewing' : 'pending',
+    submittedBy: idx % 2 === 0 ? '运营小王' : '商家中心',
+    submittedAt: `2026-03-2${(idx % 5) + 1} 1${idx}:2${idx}`,
+    specifications:
+      p.specifications && p.specifications.length ? p.specifications : ['500g', '1kg', '2kg', '5kg'],
+  }))
+  if (pendingProducts.value.length) {
+    selectPending(pendingProducts.value[0].id)
+  }
+  offShelfProducts.value = source.slice(0, 3).map((p, idx) => ({
+    ...p,
+    reason: idx % 2 === 0 ? '库存清理中，暂时下架' : '商品策略调整，下架优化',
+  }))
+  failedProducts.value = source.slice(3, 6).map((p, idx) => ({
+    ...p,
+    reason: idx % 2 === 0 ? '图片信息不完整，请补全主图' : '属性字段不规范，请重新填写',
+  }))
 }
 
 const archivedList = computed(() =>
@@ -247,26 +308,21 @@ onMounted(async () => {
   await catalog.loadAll()
   await auth.refresh()
   await cartBadge.refresh()
-  const source = catalog.products.slice(0, 8)
-  pendingProducts.value = source.map((p, idx) => ({
-    ...p,
-    status: idx % 5 === 0 ? 'reviewing' : 'pending',
-    submittedBy: idx % 2 === 0 ? '运营小王' : '商家中心',
-    submittedAt: `2026-03-2${(idx % 5) + 1} 1${idx}:2${idx}`,
-    specifications:
-      p.specifications && p.specifications.length ? p.specifications : ['500g', '1kg', '2kg', '5kg'],
-  }))
-  if (pendingProducts.value.length) {
-    selectPending(pendingProducts.value[0].id)
+  try {
+    const pendingRes = await merchantProductAuditApi.listPending()
+    const offShelfRes = await merchantProductAuditApi.listOffShelf()
+    const failedRes = await merchantProductAuditApi.listRejected()
+    pendingProducts.value = pendingRes.list
+    offShelfProducts.value = offShelfRes.list
+    failedProducts.value = failedRes.list
+    if (!pendingProducts.value.length && !offShelfProducts.value.length && !failedProducts.value.length) {
+      initMockAuditData()
+    } else if (pendingProducts.value.length) {
+      selectPending(pendingProducts.value[0].id)
+    }
+  } catch {
+    initMockAuditData()
   }
-  offShelfProducts.value = source.slice(0, 3).map((p, idx) => ({
-    ...p,
-    reason: idx % 2 === 0 ? '库存清理中，暂时下架' : '商品策略调整，下架优化',
-  }))
-  failedProducts.value = source.slice(3, 6).map((p, idx) => ({
-    ...p,
-    reason: idx % 2 === 0 ? '图片信息不完整，请补全主图' : '属性字段不规范，请重新填写',
-  }))
 })
 
 onUnmounted(() => {
