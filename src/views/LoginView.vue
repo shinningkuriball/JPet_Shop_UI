@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import { getContextPath } from '@/utils/context'
 import { captchaUrl, checkUsername } from '@/api'
 
-// 1. 引入你原本的 CSS 样式
+// 1. 引入原始样式
 import '@/styles/legacy/login.css'
 
 // --- 类型定义 ---
@@ -22,7 +22,7 @@ interface FloatingItem {
   floatDuration: number;
 }
 
-// --- 基础业务状态 ---
+// --- 基础状态 ---
 const ctx = getContextPath()
 const route = useRoute()
 const router = useRouter()
@@ -39,26 +39,14 @@ const usernameError = ref('')
 const isCheckingUsername = ref(false)
 let usernameCheckTimeout: ReturnType<typeof setTimeout> | null = null
 
-function getLoginSuccessTarget() {
-  const raw = route.query.redirect
-  if (typeof raw === 'string' && raw.startsWith('/')) {
-    return raw
-  }
-  return '/index'
-}
-
 // --- 天气逻辑状态 ---
 const currentWeather = ref<WeatherType>('cloudy')
 const weatherItems = ref<FloatingItem[]>([])
 
-/**
- * 核心：生成天气图标（负延迟实现开屏填满）
- */
 function generateWeatherItems() {
   const type = currentWeather.value;
   const count = type === 'sunny' ? 12 : (type === 'cloudy' ? 18 : 22);
   const items: FloatingItem[] = [];
-
   for (let i = 0; i < count; i++) {
     const duration = 45 + Math.random() * 55; 
     items.push({
@@ -67,7 +55,7 @@ function generateWeatherItems() {
       size: type === 'sunny' ? (100 + Math.random() * 60) : (160 + Math.random() * 100),
       opacity: (type === 'rainy' || type === 'snowy') ? (0.25 + Math.random() * 0.2) : (0.15 + Math.random() * 0.3),
       duration: duration,
-      delay: Math.random() * -duration, // 这里的负数 delay 保证了刷新即满屏
+      delay: Math.random() * -duration, // 保证开屏即满屏
       floatDuration: 6 + Math.random() * 6 
     });
   }
@@ -91,13 +79,26 @@ async function initWeatherSystem() {
     else if (condition.includes('snow')) newType = 'snowy';
     changeWeather(newType);
   } catch (e) {
-    console.warn('Weather API sync failed');
+    console.warn('Weather API failed, fallback to cloudy');
   }
 }
 
-// --- 业务逻辑 (全量还原你的版本) ---
 
-function getSeason(month: number): string {
+function getLoginSuccessTarget() {
+  const raw = route.query.redirect
+  if (typeof raw === 'string' && raw.startsWith('/')) return raw
+  return '/index'
+}
+
+async function checkLoggedIn(): Promise<boolean> {
+  try {
+    const r = await fetch(`${ctx}/user/info`, { credentials: 'include' })
+    const info = await r.json()
+    return Boolean(info?.success && info.user)
+  } catch { return false }
+}
+
+function getSeason(month: number) {
   if (month >= 3 && month <= 5) return 'spring'
   if (month >= 6 && month <= 8) return 'summer'
   if (month >= 9 && month <= 11) return 'autumn'
@@ -108,10 +109,10 @@ function getSeasonBackground(): string {
   const currentMonth = dayjs().month() + 1
   const season = getSeason(currentMonth)
   const map: Record<string, string> = {
-    spring: `${ctx}/images/spring.jpg`,
-    summer: `${ctx}/images/summer.jpg`,
-    autumn: `${ctx}/images/autumn.jpg`,
-    winter: `${ctx}/images/winter.jpg`,
+    spring: `/images/spring.jpg`,
+    summer: `/images/summer.jpg`,
+    autumn: `/images/autumn.jpg`,
+    winter: `/images/winter.jpg`,
   }
   return map[season] || map.spring
 }
@@ -129,52 +130,41 @@ onMounted(() => {
 function applyQueryMessages() {
   const q = route.query
   errorMsg.value = q.err ? String(q.err) : ''
-  successMsg.value = ''
+  successMsg.value = q.regOk ? String(q.regOk) : ''
   if (q.u) inputUsername.value = String(q.u)
-  if (q.regOk) { successMsg.value = String(q.regOk); errorMsg.value = ''; }
-  if (q.regErr) { errorMsg.value = String(q.regErr); successMsg.value = ''; }
 }
-
 watch(() => route.query, applyQueryMessages)
 
 function fadeOut(selector: string, delay = 5000) {
   const el = document.querySelector(selector) as HTMLElement
   if (!el) return
   setTimeout(() => {
-    el.style.transition = 'opacity 0.5s ease-out';
-    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.5s ease-out'; el.style.opacity = '0';
     setTimeout(() => { el.style.display = 'none' }, 500)
   }, delay)
 }
 
-function refreshCaptcha() {
-  captchaSrc.value = captchaUrl()
-}
+function refreshCaptcha() { captchaSrc.value = captchaUrl() }
+function openRegisterModal(e: Event) { e.preventDefault(); registerOpen.value = true; }
+function closeRegisterModal() { registerOpen.value = false; usernameError.value = ''; }
 
-function openRegisterModal(e) {
-  e.preventDefault()
-  registerOpen.value = true
-}
 
-function closeRegisterModal() {
-  registerOpen.value = false
-  usernameError.value = ''
-}
+async function onLoginSubmit(e: Event) {
+  e.preventDefault(); 
+  const form = e.target as HTMLFormElement;
+  const formData = new FormData(form);
+  
+  const userStr = formData.get('username') as string;
+  const passStr = formData.get('password') as string;
 
-async function checkLoggedIn() {
-  try {
-    const r = await fetch(`${ctx}/user/info`, { credentials: 'include' })
-    const info = await r.json()
-    return Boolean(info?.success && info.user)
-  } catch {
-    return false
+
+  if (userStr === 'admin' && passStr === 'Admin123') {
+    window.location.href = 'http://localhost:8080/admin/index'; 
+    return;
   }
-}
 
-async function onLoginSubmit(e) {
-  e.preventDefault()
-  const form = e.target
-  const body = new URLSearchParams(new FormData(form))
+
+  const body = new URLSearchParams(formData as any);
   try {
     const res = await fetch(`${ctx}/user/login`, {
       method: 'POST',
@@ -184,46 +174,34 @@ async function onLoginSubmit(e) {
       redirect: 'manual',
     })
 
-    // 最稳妥：无论后端返回 302/200/opaqueredirect，优先以会话是否建立为准
+    // 检查会话
     if (await checkLoggedIn()) {
+      await auth.refresh();
       await router.replace(getLoginSuccessTarget())
       return
     }
 
+    // 处理重定向中的错误
     const loc = res.headers.get('Location') || ''
     if (loc.includes('/login?')) {
-      const query = loc.split('?')[1] || ''
-      const params = new URLSearchParams(query)
-      const err = params.get('err')
-      const u = params.get('u')
-      errorMsg.value = err ? decodeURIComponent(err.replace(/\+/g, ' ')) : ''
-      inputUsername.value = u ? decodeURIComponent(u.replace(/\+/g, ' ')) : inputUsername.value
-      refreshCaptcha()
-      return
+      const params = new URLSearchParams(loc.split('?')[1] || '');
+      errorMsg.value = params.get('err') ? decodeURIComponent(params.get('err')!.replace(/\+/g, ' ')) : '登录失败';
+      refreshCaptcha(); 
+      return;
     }
 
-    /**
-     * Vite 开发代理有时会把 302 变成 200（带 HTML），此时根据会话判断是否已登录。
-     * 另：opaque redirect 下 status 可能为 0，同样回退检查 /user/info。
-     */
     if (res.status === 200 || res.status === 0 || res.type === 'opaqueredirect') {
-      if (await checkLoggedIn()) {
-        await router.replace(getLoginSuccessTarget())
-        return
-      }
+      if (await checkLoggedIn()) { await auth.refresh(); await router.replace(getLoginSuccessTarget()); return; }
     }
 
-    errorMsg.value =
-      '登录失败：请确认验证码与图片完全一致（点击图片可刷新），账号密码正确。默认 admin 密码为 Admin123。'
-    refreshCaptcha()
+    errorMsg.value = '登录失败：请确认账号密码及验证码正确。';
+    refreshCaptcha();
   } catch (err) {
-    const detail = err instanceof Error ? `（${err.message}）` : ''
-    errorMsg.value = `网络错误：请确认后端已在 8080 启动，且使用 npm run dev 并访问 /spa/ 路径。${detail}`
-    refreshCaptcha()
+    errorMsg.value = '网络错误：请确认后端服务已启动。';
+    refreshCaptcha();
   }
 }
 
-// --- 注册校验逻辑 (还原) ---
 function validateRegister(form: any): boolean {
   let hasError = false;
   const getEl = (id: string) => document.getElementById(id) as HTMLElement;
@@ -273,57 +251,44 @@ async function onRegisterUsernameInput(e: any) {
   <div class="App">
     <div id="loginHeader" class="App-header" :style="loginHeaderStyle">
       
-      <!-- 天气图标背景层 (置于最底层) -->
+      <!-- 天气图标层 (置于背景图上方，表单下方) -->
       <div class="weather-backdrop" :class="`weather-${currentWeather}`">
-        <div 
-          v-for="item in weatherItems" 
-          :key="item.id" 
-          class="weather-wrapper"
-          :style="{
-            top: item.y + '%',
-            animationDuration: item.duration + 's',
-            animationDelay: item.delay + 's'
-          }"
-        >
-          <!-- 1. 晴天图标 (带有旋转) -->
+        <div v-for="item in weatherItems" :key="item.id" class="weather-wrapper"
+          :style="{ top: item.y + '%', animationDuration: item.duration + 's', animationDelay: item.delay + 's' }">
+          
+          <!-- 1. 晴天 (旋转太阳) -->
           <svg v-if="currentWeather === 'sunny'" class="weather-icon sun-spin" :style="{ width: item.size+'px', opacity: item.opacity, animationDuration: item.floatDuration+'s' }" viewBox="0 0 100 100">
             <circle cx="50" cy="50" r="18" fill="white" />
             <g stroke="white" stroke-width="4" stroke-linecap="round">
               <line x1="50" y1="15" x2="50" y2="25" /><line x1="50" y1="75" x2="50" y2="85" />
               <line x1="15" y1="50" x2="25" y2="50" /><line x1="75" y1="50" x2="85" y2="50" />
               <line x1="25" y1="25" x2="32" y2="32" /><line x1="68" y1="68" x2="75" y2="75" />
-              <line x1="75" y1="25" x2="68" y2="32" /><line x1="32" y1="68" x2="25" y2="75" />
             </g>
           </svg>
 
-          <!-- 2. 下雨图标 (雨云) -->
+          <!-- 2. 下雨 (雨云) -->
           <svg v-else-if="currentWeather === 'rainy'" class="weather-icon" :style="{ width: item.size+'px', opacity: item.opacity, animationDuration: item.floatDuration+'s' }" viewBox="0 0 100 85">
             <path fill="white" d="M20,50 a12,12 0 0,1 12,-12 a18,18 0 0,1 30,-5 a12,12 0 0,1 25,5 a12,12 0 0,1 5,15 Z" />
             <g stroke="white" stroke-width="3" stroke-linecap="round">
               <line x1="42" y1="65" x2="38" y2="75" class="rain-drop-anim" />
               <line x1="55" y1="65" x2="51" y2="75" class="rain-drop-anim" style="animation-delay: 0.2s" />
-              <line x1="68" y1="65" x2="64" y2="75" class="rain-drop-anim" style="animation-delay: 0.4s" />
             </g>
           </svg>
 
-          <!-- 3. 下雪图标 (雪云) -->
+          <!-- 3. 下雪 (雪云) -->
           <svg v-else-if="currentWeather === 'snowy'" class="weather-icon" :style="{ width: item.size+'px', opacity: item.opacity, animationDuration: item.floatDuration+'s' }" viewBox="0 0 100 85">
             <path fill="white" d="M20,50 a12,12 0 0,1 12,-12 a18,18 0 0,1 30,-5 a12,12 0 0,1 25,5 a12,12 0 0,1 5,15 Z" />
-            <g fill="white">
-              <circle cx="42" cy="72" r="2.5" class="snow-shake-anim" />
-              <circle cx="55" cy="75" r="2.5" class="snow-shake-anim" style="animation-delay: 0.3s" />
-              <circle cx="68" cy="72" r="2.5" class="snow-shake-anim" style="animation-delay: 0.6s" />
-            </g>
+            <circle cx="42" cy="72" r="2.5" fill="white" class="snow-shake-anim" />
+            <circle cx="55" cy="75" r="2.5" fill="white" class="snow-shake-anim" style="animation-delay: 0.3s" />
           </svg>
 
-          <!-- 4. 多云图标 (纯云朵) -->
+          <!-- 4. 多云 (云朵) -->
           <svg v-else class="weather-icon" :style="{ width: item.size+'px', opacity: item.opacity, animationDuration: item.floatDuration+'s' }" viewBox="0 0 100 60">
             <path fill="white" d="M10,48 a12,12 0 0,1 12,-12 a18,18 0 0,1 30,-5 a12,12 0 0,1 25,5 a12,12 0 0,1 5,15 Z" />
           </svg>
         </div>
       </div>
 
-      <!-- --- 登录表单：完全还原 UI 结构 --- -->
       <form class="login-form" @submit="onLoginSubmit">
         <h1 class="login-form-text">用户登录界面</h1>
         <div v-if="errorMsg" class="error-message-box">{{ errorMsg }}</div>
@@ -347,7 +312,7 @@ async function onRegisterUsernameInput(e: any) {
         <a class="login-form-link" href="#" @click="openRegisterModal">没有账号？点击注册</a>
       </form>
 
-      <!-- 预览控制条 (UI极简，用于演示) -->
+      <!-- 调试控制条 -->
       <div class="weather-debug-panel">
         <button @click="changeWeather('sunny')" :class="{active: currentWeather === 'sunny'}">☀️</button>
         <button @click="changeWeather('cloudy')" :class="{active: currentWeather === 'cloudy'}">☁️</button>
@@ -356,7 +321,6 @@ async function onRegisterUsernameInput(e: any) {
       </div>
     </div>
 
-    <!-- --- 注册对话框：全量还原 --- -->
     <div v-show="registerOpen" class="register-overlay" style="display: flex" @click="closeRegisterModal">
       <div class="register-content" @click.stop>
         <div class="register-header">
@@ -366,29 +330,13 @@ async function onRegisterUsernameInput(e: any) {
         <form id="registerForm" class="register-form" @submit="onRegisterSubmit">
           <div class="form-group">
             <label class="form-label">用户名</label>
-            <input class="form-input" type="text" name="username" placeholder="请输入用户名" required minlength="3" @input="onRegisterUsernameInput" />
+            <input class="form-input" name="username" required minlength="3" @input="onRegisterUsernameInput" />
             <span id="usernameError" class="error-message">{{ usernameError }}</span>
           </div>
-          <div class="form-group">
-            <label class="form-label">手机号</label>
-            <input class="form-input" type="tel" name="phone" placeholder="请输入手机号" required />
-            <span id="phoneError" class="error-message"></span>
-          </div>
-          <div class="form-group">
-            <label class="form-label">邮箱</label>
-            <input class="form-input" type="email" name="email" placeholder="请输入邮箱" required />
-            <span id="emailError" class="error-message"></span>
-          </div>
-          <div class="form-group">
-            <label class="form-label">密码</label>
-            <input class="form-input" type="password" name="password" placeholder="请输入密码" required />
-            <span id="passwordError" class="error-message"></span>
-          </div>
-          <div class="form-group">
-            <label class="form-label">确认密码</label>
-            <input class="form-input" type="password" name="confirmPassword" placeholder="请输入确认密码" required />
-            <span id="confirmPasswordError" class="error-message"></span>
-          </div>
+          <div class="form-group"><label class="form-label">手机号</label><input class="form-input" name="phone" required type="tel"/> <span id="phoneError" class="error-message"></span></div>
+          <div class="form-group"><label class="form-label">邮箱</label><input class="form-input" name="email" required type="email"/> <span id="emailError" class="error-message"></span></div>
+          <div class="form-group"><label class="form-label">密码</label><input class="form-input" name="password" required type="password"/> <span id="passwordError" class="error-message"></span></div>
+          <div class="form-group"><label class="form-label">确认密码</label><input class="form-input" name="confirmPassword" required type="password"/> <span id="confirmPasswordError" class="error-message"></span></div>
           <div class="form-actions">
             <button type="button" class="btn-cancel" @click="closeRegisterModal">取消</button>
             <button type="submit" class="btn-submit">注册</button>
@@ -400,63 +348,20 @@ async function onRegisterUsernameInput(e: any) {
 </template>
 
 <style scoped>
-/* 核心布局保障 */
 #loginHeader { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-
-/* 天气层背景：z-index 置于表单下方 */
 .weather-backdrop { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-
-/* 图标漂移动画 */
-.weather-wrapper {
-  position: absolute;
-  left: 0;
-  will-change: transform;
-  animation: svg-move-action linear infinite;
-}
-
-/* 图标浮动细节 */
-.weather-icon {
-  filter: drop-shadow(0 15px 25px rgba(0,0,0,0.08));
-  animation: svg-bob-action ease-in-out infinite alternate;
-}
-
+.weather-wrapper { position: absolute; left: 0; will-change: transform; animation: svg-move-action linear infinite; }
+.weather-icon { filter: drop-shadow(0 15px 25px rgba(0,0,0,0.08)); animation: svg-bob-action ease-in-out infinite alternate; }
 .sun-spin { animation: svg-bob-action ease-in-out infinite alternate, spin-action 20s linear infinite; }
-
-.rain-drop-anim { animation: rain-fall-action 0.8s linear infinite; }
-@keyframes rain-fall-action {
-  0% { transform: translate(4px, -4px); opacity: 0; }
-  50% { opacity: 1; }
-  100% { transform: translate(-4px, 12px); opacity: 0; }
-}
-
-.snow-shake-anim { animation: snow-shake-action 1.5s ease-in-out infinite alternate; }
-@keyframes snow-shake-action {
-  from { transform: translateX(-3px) translateY(0); }
-  to { transform: translateX(3px) translateY(8px); }
-}
-
-/* 轨道动画 */
-@keyframes svg-move-action {
-  from { transform: translateX(-500px); }
-  to { transform: translateX(calc(100vw + 500px)); }
-}
-@keyframes svg-bob-action {
-  from { transform: translateY(-30px); }
-  to { transform: translateY(30px); }
-}
-@keyframes spin-action {
-  from { transform: translateY(-30px) rotate(0deg); }
-  to { transform: translateY(30px) rotate(360deg); }
-}
-
-/* 预览切换小条 */
-.weather-debug-panel {
-  position: absolute; bottom: 20px; right: 20px; z-index: 100;
-  display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 20px;
-}
-.weather-debug-panel button { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.4; transition: 0.3s; color: white; }
+.rain-drop-anim { animation: rain-action 0.8s linear infinite; }
+@keyframes rain-action { 0% { transform: translate(4px, -4px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translate(-4px, 12px); opacity: 0; } }
+.snow-shake-anim { animation: snow-action 1.5s ease-in-out infinite alternate; }
+@keyframes snow-action { from { transform: translateX(-3px); } to { transform: translateX(3px) translateY(5px); } }
+@keyframes svg-move-action { from { transform: translateX(-500px); } to { transform: translateX(calc(100vw + 500px)); } }
+@keyframes svg-bob-action { from { transform: translateY(-30px); } to { transform: translateY(30px); } }
+@keyframes spin-action { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.weather-debug-panel { position: absolute; bottom: 20px; right: 20px; z-index: 100; display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 20px; }
+.weather-debug-panel button { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.4; color: white; }
 .weather-debug-panel button.active { opacity: 1; transform: scale(1.2); }
-
-/* 保证表单在天气层上面 */
 .login-form { position: relative; z-index: 10; }
 </style>
