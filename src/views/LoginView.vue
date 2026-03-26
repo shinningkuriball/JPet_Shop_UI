@@ -290,7 +290,7 @@ async function onRegisterUsernameInput(e: any) {
       </div>
 
       <form class="login-form" @submit="onLoginSubmit">
-        <h1 class="login-form-text">用户登录界面</h1>
+        <h1 class="login-form-text">用户登录</h1>
         <div v-if="errorMsg" class="error-message-box">{{ errorMsg }}</div>
         <div v-if="successMsg" class="success-message-box">{{ successMsg }}</div>
         <div class="login-group">
@@ -348,20 +348,86 @@ async function onRegisterUsernameInput(e: any) {
 </template>
 
 <style scoped>
-#loginHeader { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-.weather-backdrop { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-.weather-wrapper { position: absolute; left: 0; will-change: transform; animation: svg-move-action linear infinite; }
-.weather-icon { filter: drop-shadow(0 15px 25px rgba(0,0,0,0.08)); animation: svg-bob-action ease-in-out infinite alternate; }
-.sun-spin { animation: svg-bob-action ease-in-out infinite alternate, spin-action 20s linear infinite; }
-.rain-drop-anim { animation: rain-action 0.8s linear infinite; }
-@keyframes rain-action { 0% { transform: translate(4px, -4px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translate(-4px, 12px); opacity: 0; } }
-.snow-shake-anim { animation: snow-action 1.5s ease-in-out infinite alternate; }
-@keyframes snow-action { from { transform: translateX(-3px); } to { transform: translateX(3px) translateY(5px); } }
-@keyframes svg-move-action { from { transform: translateX(-500px); } to { transform: translateX(calc(100vw + 500px)); } }
-@keyframes svg-bob-action { from { transform: translateY(-30px); } to { transform: translateY(30px); } }
-@keyframes spin-action { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.weather-debug-panel { position: absolute; bottom: 20px; right: 20px; z-index: 100; display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 20px; }
-.weather-debug-panel button { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.4; color: white; }
-.weather-debug-panel button.active { opacity: 1; transform: scale(1.2); }
-.login-form { position: relative; z-index: 10; }
+
+#loginHeader { 
+  position: relative; 
+  width: 100vw; 
+  height: 100vh; 
+  overflow: hidden; 
+}
+
+.weather-backdrop{
+  position: absolute; 
+  inset: 0; 
+  pointer-events: none; 
+  z-index: 1; 
+}
+.weather-wrapper {
+  position: absolute; 
+  left: 0; 
+  will-change: transform; 
+  animation: svg-move-action linear infinite; 
+}
+.weather-icon { 
+  filter: drop-shadow(0 15px 25px rgba(0,0,0,0.08)); 
+  animation: svg-bob-action ease-in-out infinite alternate; 
+}
+.sun-spin { 
+  animation: svg-bob-action ease-in-out infinite alternate, spin-action 20s linear infinite; 
+}
+.rain-drop-anim { 
+  animation: rain-action 0.8s linear infinite; 
+}
+@keyframes rain-action {
+  0% { 
+    transform: translate(4px, -4px); opacity: 0; 
+  } 
+  50% { 
+    opacity: 1; 
+  }
+  100% { transform: translate(-4px, 12px); opacity: 0; 
+  } 
+}
+.snow-shake-anim { 
+  animation: snow-action 1.5s ease-in-out infinite alternate; 
+}
+@keyframes snow-action { 
+  from { transform: translateX(-3px); } to { transform: translateX(3px) translateY(5px); } 
+}
+@keyframes svg-move-action {
+  from { transform: translateX(-500px); } to { transform: translateX(calc(100vw + 500px)); } 
+}
+@keyframes svg-bob-action { 
+  from { transform: translateY(-30px); } to { transform: translateY(30px); } 
+}
+@keyframes spin-action { 
+  from { transform: rotate(0deg); } to { transform: rotate(360deg); } 
+}
+.weather-debug-panel { 
+  position: absolute; 
+  bottom: 20px; 
+  right: 20px; 
+  z-index: 100; 
+  display: flex; 
+  gap: 8px; 
+  background: rgba(0,0,0,0.2); 
+  padding: 5px; 
+  border-radius: 20px; 
+}
+.weather-debug-panel button { 
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer; 
+  opacity: 0.4; 
+  color: white; 
+}
+.weather-debug-panel button.active {
+ opacity: 1; 
+ transform: scale(1.2); 
+}
+.login-form {
+ position: relative; 
+ z-index: 10; 
+ }
 </style>
