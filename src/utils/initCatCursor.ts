@@ -1,15 +1,19 @@
 import { getContextPath } from './context'
 
+// 导入猫咪光标图片
+import catGif from '@/../public/images/cat_transparent.gif'
+
 /** 自 static/js/cat-cursor.js 迁移 */
 export function initCatCursor() {
   const ctx = getContextPath()
+  
   const catElement = document.createElement('div')
   catElement.id = 'followCat'
   catElement.style.cssText = `
         width: 50px;
         height: 50px;
         position: fixed;
-        background-image: url('${ctx}/images/cat_transparent.gif');
+        background-image: url('${catGif}');
         background-size: cover;
         background-repeat: no-repeat;
         pointer-events: none;
