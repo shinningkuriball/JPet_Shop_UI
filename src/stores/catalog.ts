@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { productApi } from '@/api'
+import { useLocalOffShelfStore } from '@/stores/offShelfLocal'
 
 export const useCatalogStore = defineStore('catalog', () => {
   const products = ref([])
@@ -16,11 +17,16 @@ export const useCatalogStore = defineStore('catalog', () => {
     } finally {
       loading.value = false
     }
+    useLocalOffShelfStore().applyToProducts(products.value)
     return products.value
   }
 
   function getById(id) {
-    return products.value.find((p) => p.id === id)
+    if (id == null) return undefined
+    const sid = String(id)
+    return products.value.find(
+      (p) => p.id === id || String(p.id) === sid || String(p.spuId ?? '') === sid,
+    )
   }
 
   function categories() {

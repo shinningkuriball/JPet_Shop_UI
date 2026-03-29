@@ -34,13 +34,13 @@
 
 ## 2. 当前分工建议（可直接发同学）
 
-- **A 同学（商家资料与认证）**  
+- **（商家资料与认证）**  
   负责 `MerchantCenterView.vue` + `merchantApi` 中 profile/stats/auth。
-- **B 同学（商品审核流）**  
+- **（商品审核流）**  
   负责 `ProductAuditView.vue` + `merchantProductAuditApi`。
-- **C 同学（商品管理 SPU/SKU）**  
+- **（商品管理 SPU/SKU）**  
   负责 `CategoryView.vue` + `merchantSpuApi`，重点是完整编辑器（SPU+SKU）。
-- **D 同学（物流订单）**  
+- **同学（物流订单）**  
   负责 `LogisticsView.vue` + `merchantOrderApi`。
 - **你（主负责人）**  
   统一接口契约、状态枚举、分页规范，最终联调验收。

@@ -6,6 +6,7 @@ import ShopNav from '@/components/ShopNav.vue'
 import ProductDetailModal from '@/components/ProductDetailModal.vue'
 import { getImagePath } from '@/utils/imagePath'
 import { useCatalogStore } from '@/stores/catalog'
+import { useLocalOffShelfStore } from '@/stores/offShelfLocal'
 import { useRouter } from 'vue-router'
 import { merchantSpuApi } from '@/api/merchant'
 
@@ -16,10 +17,10 @@ import '@/styles/legacy/category.css'
 const route = useRoute()
 const router = useRouter()
 const catalog = useCatalogStore()
+const localOffShelf = useLocalOffShelfStore()
 
 const selectedCategory = ref('全部')
 const sortBy = ref('default')
-const statusFilter = ref('全部')
 const merchantProducts = ref([])
 const remoteTotal = ref(0)
 const pageNo = ref(1)
@@ -50,16 +51,18 @@ function getStockCount(product) {
   return Number.isFinite(v) ? v : 0
 }
 
+function isOffShelf(product) {
+  if (String(product?.status || '') === '已下架') return true
+  // 接口可能把 status 刷回「已上架」，但本地下架 id 仍在；并让 computed 依赖 Pinia byId
+  return localOffShelf.isRowMarkedOffShelf(product)
+}
+
 const filteredProducts = computed(() => {
   const sourceProducts = usingRemote.value ? merchantProducts.value : catalog.products
   let list =
     selectedCategory.value === '全部'
       ? [...sourceProducts]
       : sourceProducts.filter((p) => p.category === selectedCategory.value)
-
-  if (!usingRemote.value && statusFilter.value !== '全部') {
-    list = list.filter((p) => String(p.status || '') === statusFilter.value)
-  }
 
   if (!usingRemote.value && searchKeyword.value.length) {
     const kw = searchKeyword.value.toLowerCase()
@@ -87,6 +90,9 @@ const filteredProducts = computed(() => {
       break
   }
 
+  // 下架商品固定放到列表最后（同组内保留当前排序）
+  list.sort((a, b) => Number(isOffShelf(a)) - Number(isOffShelf(b)))
+
   if (!usingRemote.value) {
     const start = (pageNo.value - 1) * pageSize.value
     list = list.slice(start, start + pageSize.value)
@@ -103,7 +109,6 @@ function selectCategory(cat) {
 function clearFilter() {
   selectedCategory.value = '全部'
   sortBy.value = 'default'
-  statusFilter.value = '全部'
   pageNo.value = 1
   router.replace({ path: '/category' })
 }
@@ -112,7 +117,19 @@ const detailOpen = ref(false)
 const detailProduct = ref(null)
 
 function openProductDetail(p) {
-  detailProduct.value = p
+  // 远程列表数据在 merchantProducts 里，必须与列表项同一引用，否则改 status 不会反映到卡片上
+  if (usingRemote.value) {
+    const fromMerchant = merchantProducts.value.find(
+      (x) => x.id === p.id || String(x.id) === String(p.id),
+    )
+    if (fromMerchant) {
+      detailProduct.value = fromMerchant
+      detailOpen.value = true
+      return
+    }
+  }
+  const raw = catalog.getById(p.id)
+  detailProduct.value = raw || p
   detailOpen.value = true
 }
 
@@ -139,7 +156,6 @@ async function loadRemoteProducts() {
       size: pageSize.value,
       keyword: searchKeyword.value || undefined,
       category: selectedCategory.value === '全部' ? undefined : selectedCategory.value,
-      status: statusFilter.value === '全部' ? undefined : statusFilter.value,
       ...mapSortParams(),
     })
     usingRemote.value = true
@@ -158,6 +174,7 @@ async function loadRemoteProducts() {
           .join('/'),
       ),
     }))
+    localOffShelf.applyToProducts(merchantProducts.value)
   } catch {
     usingRemote.value = false
     merchantProducts.value = []
@@ -180,36 +197,13 @@ function nextPage() {
   pageNo.value += 1
 }
 
-async function renameProduct(product) {
-  const nextName = window.prompt('请输入新的商品名称', product.name || '')
-  if (!nextName || !nextName.trim()) return
-  try {
-    await merchantSpuApi.update(product.id, { name: nextName.trim() })
-    await loadRemoteProducts()
-    alert('商品名称已更新')
-  } catch {
-    alert('名称更新失败，请稍后重试')
-  }
-}
-
-async function toggleShelfStatus(product) {
-  const nextStatus = product.status === '已上架' ? '已下架' : '已上架'
-  try {
-    await merchantSpuApi.update(product.id, { status: nextStatus })
-    await loadRemoteProducts()
-    alert(`商品状态已更新为${nextStatus}`)
-  } catch {
-    alert('状态更新失败，请稍后重试')
-  }
-}
-
 onMounted(async () => {
   await catalog.loadAll()
   await loadRemoteProducts()
 })
 
 watch(
-  [() => route.query.search, selectedCategory, sortBy, statusFilter, pageNo, pageSize],
+  [() => route.query.search, selectedCategory, sortBy, pageNo, pageSize],
   async () => {
     await loadRemoteProducts()
   },
@@ -268,21 +262,18 @@ watch(pageSize, () => {
           <option value="purchase-asc">按购买量递增</option>
           <option value="purchase-desc">按购买量递减</option>
         </select>
-        <span class="filter-select-text">状态：</span>
-        <select v-model="statusFilter" class="filter-select-select">
-          <option value="全部">全部</option>
-          <option value="草稿">草稿</option>
-          <option value="待审核">待审核</option>
-          <option value="已上架">已上架</option>
-          <option value="已下架">已下架</option>
-          <option value="已拒绝">已拒绝</option>
-        </select>
       </div>
 
       <div id="productList" class="kinds-list-box">
         <div v-if="loading" class="no-products">商品加载中...</div>
         <div v-else-if="!filteredProducts.length" class="no-products">暂无商品</div>
-        <div v-for="product in filteredProducts" v-else :key="product.id" class="kinds-item">
+        <div
+          v-for="product in filteredProducts"
+          v-else
+          :key="product.id"
+          class="kinds-item"
+          :class="{ 'kinds-item-off-shelf': isOffShelf(product) }"
+        >
           <img
             :src="getImagePath(product.image)"
             :alt="product.name"
@@ -301,12 +292,7 @@ watch(pageSize, () => {
             </div>
             <div class="kinds-item-footer">
               <span class="kinds-item-price">¥{{ Number(product.price || 0).toFixed(0) }}</span>
-              <div class="kinds-item-actions">
-                <button type="button" class="kinds-op-btn" @click.stop="renameProduct(product)">改名</button>
-                <button type="button" class="kinds-op-btn" @click.stop="toggleShelfStatus(product)">
-                  {{ product.status === '已上架' ? '下架' : '上架' }}
-                </button>
-              </div>
+              <span v-if="isOffShelf(product)" class="kinds-item-status-tag">已下架</span>
             </div>
           </div>
         </div>

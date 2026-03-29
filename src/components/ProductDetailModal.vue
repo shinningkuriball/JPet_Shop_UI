@@ -3,13 +3,32 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { getImagePath } from '@/utils/imagePath'
 import { calculateProductPrice } from '@/utils/productPrice'
 import { lockBodyScroll, unlockBodyScroll } from '@/utils/scrollLock'
+import { useCatalogStore } from '@/stores/catalog'
+import { useLocalOffShelfStore } from '@/stores/offShelfLocal'
+
+function buildMockReviews(productName) {
+  const name = productName || '本商品'
+  const seeds = [
+    { user: '橘猫**', rating: 5, text: `给狗子买的${name}很耐咬，天然橡胶没异味，会继续回购。` },
+    { user: '布偶妈', rating: 5, text: '物流快，包装完好，毛孩子玩得很开心，已经推荐给邻居。' },
+    { user: '阿柴爸', rating: 4, text: '性价比不错，就是希望多几个尺寸选择。' },
+    { user: 'm**o', rating: 5, text: `第二次买${name}了，清洁牙齿效果不错，客服回复也及时。` },
+    { user: '豆豆', rating: 4, text: '适口性可以，过渡期很顺利，没出现不适。' },
+    { user: 'K***n', rating: 5, text: '活动价很香，和描述一致，验过没问题。' },
+  ]
+  return seeds.map((s, i) => ({
+    id: `${name}-${i}`,
+    ...s,
+    date: `2026-0${(i % 3) + 1}-${12 + i}`,
+  }))
+}
 
 const props = defineProps({
   modelValue: Boolean,
   product: { type: Object, default: null },
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'product-updated'])
 
 const selected = reactive({ color: null, size: null, spec: null })
 const editedDescription = ref('')
@@ -17,11 +36,23 @@ const editingDescription = ref(false)
 const customBasePrice = ref(null)
 const specCustomPrices = reactive({})
 const editableStock = ref(0)
+const reviewsExpanded = ref(false)
+
+const productReviews = computed(() => {
+  if (!props.product) return []
+  if (Array.isArray(props.product.buyerReviews) && props.product.buyerReviews.length) {
+    return props.product.buyerReviews
+  }
+  return buildMockReviews(props.product.name)
+})
+
+const reviewBeltItems = computed(() => productReviews.value)
 
 watch(
   () => props.product,
   (p) => {
     if (!p) return
+    reviewsExpanded.value = false
     selected.color = p.colors?.length ? p.colors[0] : null
     selected.size = p.sizes?.length ? p.sizes[0] : null
     selected.spec = p.specifications?.length ? p.specifications[0] : null
@@ -78,7 +109,81 @@ function saveDescription() {
   editingDescription.value = false
   if (props.product) {
     props.product.detailDescription = editedDescription.value.trim()
+    emit('product-updated', { id: props.product.id, field: 'detailDescription' })
   }
+}
+
+/** 将规格价写回商品对象，供列表/外部与 calculateProductPrice 读取 */
+function applySpecPrice(product, spec, price) {
+  if (!product || !spec) return
+  const n = Number(Number(price).toFixed(2))
+  if (!product.specificationPrices || typeof product.specificationPrices !== 'object') {
+    product.specificationPrices = {}
+  }
+  product.specificationPrices[spec] = n
+  if (product.attributes && typeof product.attributes === 'object') {
+    if (!product.attributes.specificationPrices || typeof product.attributes.specificationPrices !== 'object') {
+      product.attributes.specificationPrices = {}
+    }
+    product.attributes.specificationPrices[spec] = n
+  }
+}
+
+/** 多规格时，列表展示价取各规格最低价；并同步 minPrice（商家 SPU 列表用） */
+function syncMainPriceFromSpecs(product) {
+  if (!product) return
+  const sp =
+    product.specificationPrices ||
+    (product.attributes && product.attributes.specificationPrices)
+  if (sp && typeof sp === 'object') {
+    const nums = Object.values(sp)
+      .map((x) => parseFloat(x))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    if (nums.length) {
+      const min = Math.min(...nums)
+      product.price = min
+      if (product.minPrice != null && product.minPrice !== undefined) {
+        product.minPrice = min
+      }
+    }
+  }
+}
+
+/** 按尺寸计价（无「规格」仅有「尺寸」时，改价必须写 sizePrices，否则界面仍显示旧价） */
+function applySizePrice(product, size, price) {
+  if (!product || !size) return
+  const n = Number(Number(price).toFixed(2))
+  if (!product.sizePrices || typeof product.sizePrices !== 'object') {
+    product.sizePrices = {}
+  }
+  product.sizePrices[size] = n
+  if (product.attributes && typeof product.attributes === 'object') {
+    if (!product.attributes.sizePrices || typeof product.attributes.sizePrices !== 'object') {
+      product.attributes.sizePrices = {}
+    }
+    product.attributes.sizePrices[size] = n
+  }
+}
+
+function syncMainPriceFromSizes(product) {
+  if (!product) return
+  const sz = product.sizePrices || (product.attributes && product.attributes.sizePrices)
+  if (sz && typeof sz === 'object') {
+    const nums = Object.values(sz)
+      .map((x) => parseFloat(x))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    if (nums.length) {
+      const min = Math.min(...nums)
+      product.price = min
+      if (product.minPrice != null && product.minPrice !== undefined) {
+        product.minPrice = min
+      }
+    }
+  }
+}
+
+function notifyProductUpdated(field) {
+  if (props.product) emit('product-updated', { id: props.product.id, field })
 }
 
 function editCurrentPrice() {
@@ -90,11 +195,21 @@ function editCurrentPrice() {
     alert('请输入有效的价格')
     return
   }
+  const p = props.product
+  const v = Number(next.toFixed(2))
   if (selected.spec) {
-    specCustomPrices[selected.spec] = Number(next.toFixed(2))
+    applySpecPrice(p, selected.spec, v)
+    delete specCustomPrices[selected.spec]
+    syncMainPriceFromSpecs(p)
+  } else if (selected.size) {
+    applySizePrice(p, selected.size, v)
+    syncMainPriceFromSizes(p)
   } else {
-    customBasePrice.value = Number(next.toFixed(2))
+    p.price = v
+    if (p.minPrice != null && p.minPrice !== undefined) p.minPrice = v
   }
+  customBasePrice.value = null
+  notifyProductUpdated('price')
 }
 
 function getSpecPrice(spec) {
@@ -111,19 +226,31 @@ function editSpecPrice(spec) {
     alert('请输入有效的价格')
     return
   }
-  specCustomPrices[spec] = Number(next.toFixed(2))
+  const v = Number(next.toFixed(2))
+  applySpecPrice(props.product, spec, v)
+  delete specCustomPrices[spec]
+  syncMainPriceFromSpecs(props.product)
+  notifyProductUpdated('price')
 }
 
 function changeStock(delta) {
   const next = Math.max(0, Number(editableStock.value || 0) + delta)
   editableStock.value = next
-  if (props.product) props.product.stock = next
+  if (props.product) {
+    props.product.stock = next
+    props.product.stockCount = next
+    notifyProductUpdated('stock')
+  }
 }
 
 function applyStock() {
   const next = Math.max(0, Math.floor(Number(editableStock.value || 0)))
   editableStock.value = next
-  if (props.product) props.product.stock = next
+  if (props.product) {
+    props.product.stock = next
+    props.product.stockCount = next
+    notifyProductUpdated('stock')
+  }
   alert(`库存已更新为 ${next} 件（演示模式）`)
 }
 
@@ -131,8 +258,28 @@ function temporaryOffShelf() {
   if (!props.product) return
   const ok = window.confirm(`确定将「${props.product.name}」暂时下架吗？`)
   if (!ok) return
-  alert('已标记为暂时下架（演示模式）')
+  const snap = { ...props.product }
+  const offId = props.product.id ?? props.product.spuId
+  useLocalOffShelfStore().mark(offId, snap)
+  props.product.status = '已下架'
+  // 商品页可能编辑的是 merchantProducts 里的对象，审核页合并的是 catalog：同 id 一并标记
+  const catalog = useCatalogStore()
+  const twin = catalog.getById(offId)
+  if (twin && twin !== props.product) {
+    twin.status = '已下架'
+  }
+  emit('product-updated', { id: offId, field: 'status', value: '已下架' })
+  alert('商品已暂时下架（演示模式）')
   close()
+}
+
+function starsText(n) {
+  const full = Math.round(Number(n) || 0)
+  return '★'.repeat(full) + '☆'.repeat(Math.max(0, 5 - full))
+}
+
+function toggleReviewsMore() {
+  reviewsExpanded.value = !reviewsExpanded.value
 }
 
 onUnmounted(() => {
@@ -170,6 +317,68 @@ onUnmounted(() => {
               @blur="saveDescription"
             />
             <p v-else>{{ editedDescription || '点击这里填写商品介绍' }}</p>
+          </div>
+
+          <!-- 商品介绍下方：浅色评论传送带，点击查看全部 -->
+          <div class="detail-description pdm-reviews-wrap" @click.stop>
+            <div class="pdm-reviews-head">
+              <h3>商品用户评价</h3>
+              <button type="button" class="spec-edit-btn" @click="toggleReviewsMore">
+                {{ reviewsExpanded ? '收起评论' : '查看全部评论' }}
+              </button>
+            </div>
+            <div class="pdm-reviews-viewport">
+              <div class="pdm-reviews-track">
+                <div
+                  v-for="r in reviewBeltItems"
+                  :key="'a-' + r.id"
+                  class="pdm-reviews-card"
+                  role="button"
+                  tabindex="0"
+                  @click="reviewsExpanded = true"
+                  @keydown.enter.prevent="reviewsExpanded = true"
+                >
+                  <div class="pdm-reviews-card-top">
+                    <span class="pdm-reviews-user">{{ r.user }}</span>
+                    <span class="pdm-reviews-stars">{{ starsText(r.rating) }}</span>
+                  </div>
+                  <p class="pdm-reviews-snippet">{{ r.text }}</p>
+                  <span class="pdm-reviews-date">{{ r.date }}</span>
+                </div>
+                <div
+                  v-for="r in reviewBeltItems"
+                  :key="'b-' + r.id"
+                  class="pdm-reviews-card"
+                  role="button"
+                  tabindex="0"
+                  @click="reviewsExpanded = true"
+                  @keydown.enter.prevent="reviewsExpanded = true"
+                >
+                  <div class="pdm-reviews-card-top">
+                    <span class="pdm-reviews-user">{{ r.user }}</span>
+                    <span class="pdm-reviews-stars">{{ starsText(r.rating) }}</span>
+                  </div>
+                  <p class="pdm-reviews-snippet">{{ r.text }}</p>
+                  <span class="pdm-reviews-date">{{ r.date }}</span>
+                </div>
+              </div>
+            </div>
+            <transition name="pdm-reviews-expand">
+              <div v-if="reviewsExpanded" class="pdm-reviews-more">
+                <div
+                  v-for="r in productReviews"
+                  :key="'full-' + r.id"
+                  class="pdm-reviews-more-row"
+                >
+                  <div class="pdm-reviews-more-meta">
+                    <strong>{{ r.user }}</strong>
+                    <span class="pdm-reviews-stars">{{ starsText(r.rating) }}</span>
+                    <span class="pdm-reviews-more-date">{{ r.date }}</span>
+                  </div>
+                  <p>{{ r.text }}</p>
+                </div>
+              </div>
+            </transition>
           </div>
         </div>
         <div class="detail-right">
@@ -267,3 +476,159 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.pdm-reviews-wrap {
+  cursor: default;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.pdm-reviews-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pdm-reviews-head h3 {
+  margin: 0;
+}
+
+/* 浅色传送带区域 */
+.pdm-reviews-viewport {
+  overflow: hidden;
+  max-width: 100%;
+  margin: 0 -4px;
+  padding: 8px 4px;
+  background: #fafbfc;
+  border-radius: 10px;
+  border: 1px solid #eef2f6;
+  contain: layout;
+}
+
+.pdm-reviews-track {
+  display: flex;
+  gap: 10px;
+  width: max-content;
+  animation: pdmReviewsMarquee 36s linear infinite;
+}
+
+.pdm-reviews-viewport:hover .pdm-reviews-track {
+  animation-play-state: paused;
+}
+
+@keyframes pdmReviewsMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.pdm-reviews-card {
+  flex: 0 0 auto;
+  width: 200px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e8ecf0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.pdm-reviews-card:hover {
+  border-color: #dbe4f0;
+}
+
+.pdm-reviews-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pdm-reviews-user {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.pdm-reviews-stars {
+  font-size: 11px;
+  color: #e8a317;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.pdm-reviews-snippet {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #666;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pdm-reviews-date {
+  font-size: 11px;
+  color: #999;
+}
+
+.pdm-reviews-more {
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pdm-reviews-more-row {
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.pdm-reviews-more-row:last-child {
+  border-bottom: none;
+}
+
+.pdm-reviews-more-row p {
+  margin: 6px 0 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #666;
+}
+
+.pdm-reviews-more-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #333;
+}
+
+.pdm-reviews-more-date {
+  margin-left: auto;
+  font-size: 12px;
+  color: #999;
+}
+
+.pdm-reviews-expand-enter-active,
+.pdm-reviews-expand-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.pdm-reviews-expand-enter-from,
+.pdm-reviews-expand-leave-to {
+  opacity: 0;
+}
+</style>

@@ -9,6 +9,7 @@ import { getContextPath } from '@/utils/context'
 import { useAuthStore } from '@/stores/auth'
 import { useCatalogStore } from '@/stores/catalog'
 import { useCartBadgeStore } from '@/stores/cartBadge'
+import { useLocalOffShelfStore } from '@/stores/offShelfLocal'
 
 import '@/styles/legacy/common.css'
 import '@/styles/legacy/productDetail.css'
@@ -19,6 +20,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 const cartBadge = useCartBadgeStore()
+const localOffShelf = useLocalOffShelfStore()
 
 const bannerData = [
   {
@@ -97,7 +99,12 @@ function buildReviewContent(product, index) {
   return templates[index % templates.length]
 }
 
-const hotProducts = computed(() => catalog.products.slice(0, 4))
+function isOffShelf(product) {
+  if (String(product?.status || '') === '已下架') return true
+  return localOffShelf.isRowMarkedOffShelf(product)
+}
+
+const hotProducts = computed(() => catalog.products.filter((p) => !isOffShelf(p)).slice(0, 4))
 const hotProductsWithMetrics = computed(() =>
   hotProducts.value.map((product, index) => {
     const purchaseCount = Number(product.sales || 0)
@@ -123,7 +130,8 @@ const detailOpen = ref(false)
 const detailProduct = ref(null)
 
 function openProductDetail(product) {
-  detailProduct.value = product
+  const pid = product?.id ?? product?.spuId
+  detailProduct.value = catalog.getById(pid) || product
   detailOpen.value = true
 }
 
@@ -249,7 +257,9 @@ let tooltipTimeout = null
 
 function showProductTooltip(event, product) {
   clearTimeout(tooltipTimeout)
-  tooltip.value = product
+  const pid = product?.id ?? product?.spuId
+  const canonical = catalog.getById(pid) || product
+  tooltip.value = canonical
   tooltipStyle.value = { left: `${event.pageX + 20}px`, top: `${event.pageY + 20}px` }
 }
 
@@ -438,6 +448,7 @@ onUnmounted(() => {
             </div>
             <div class="goods-footer">
               <span class="goods-price">¥{{ product.price }}</span>
+              <span v-if="isOffShelf(product)" class="kinds-item-status-tag">已下架</span>
             </div>
           </div>
         </div>
